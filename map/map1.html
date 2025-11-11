@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>WFD Roguelike Map 1</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: #111;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: system-ui, sans-serif;
+  }
+  .map {
+    position: relative;
+    width: 90vw;
+    max-width: 800px;
+    height: 90vh;
+    background: #b7b3a8;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 0 30px rgba(0,0,0,.35);
+  }
+  svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+  .node {
+    position: absolute;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: #dcd7c9;
+    border: 2px solid rgba(40,40,40,0.8);
+    box-shadow: 0 0 4px rgba(0,0,0,0.4);
+    transform: translate(-50%, -50%);
+    cursor: pointer;
+    transition: 0.15s;
+  }
+  .node:hover { background: #fff8e1; transform: translate(-50%, -50%) scale(1.1); }
+  .node.boss { width: 34px; height: 34px; background: #f0e3a3; border: 2px solid rgba(0,0,0,0.9); }
+  .node.disabled { opacity: .25; pointer-events: none; }
+  .node.done { border-color: #f97316; background: #ffebd5; box-shadow: 0 0 8px #f97316; }
+  .foot {
+    position: absolute; right: 10px; bottom: 10px;
+    display: flex; gap: 6px; z-index: 10;
+  }
+  .foot button {
+    width: 26px; height: 26px; border-radius: 6px;
+    border: 1px solid rgba(0,0,0,.35);
+    background: rgba(0,0,0,.15); color: #fff; font-weight: bold;
+    cursor: pointer;
+  }
+  .foot button.locked {
+    opacity: .28;
+    cursor: not-allowed;
+  }
+  .hp-bar {
+    position: absolute;
+    top: 10px; left: 50%; transform: translateX(-50%);
+    color: #fff; font-weight: bold;
+    font-size: 18px; background: rgba(0,0,0,.5);
+    padding: 4px 12px; border-radius: 8px;
+    box-shadow: 0 0 10px rgba(0,0,0,.4);
+  }
+</style>
+</head>
+<body>
+  <div class="map" id="map">
+    <div class="hp-bar" id="hpBar">❤️ x3</div>
+    <svg id="lines"></svg>
+    <div class="foot">
+      <button data-map="1">1</button>
+      <button data-map="2">2</button>
+      <button data-map="3">3</button>
+    </div>
+  </div>
+
+<script>
+const MAP_INDEX = 1;
+const NEXT_MAP = "file:///C:/Users/Bob/Desktop/test/map/map2.html";
+
+// 进度：unlocked 表示解锁到第几张，默认至少1
+let progress = JSON.parse(localStorage.getItem('rogueProgress') || '{"unlocked":1}');
+if (!progress.unlocked) progress.unlocked = 1;
+
+// 血量放本地，切页面不会丢
+let hp = Number(localStorage.getItem('rogueHP') || '3');
+
+// === 基础地图数据 ===
+const rows = [
+  { y: 93, xs: [20, 40, 60, 80] },
+  { y: 84, xs: [18, 38, 55, 76] },
+  { y: 75, xs: [14, 30, 50, 68, 84] },
+  { y: 66, xs: [26, 48, 72] },
+  { y: 57, xs: [15, 34, 53, 69, 86] },
+  { y: 48, xs: [22, 44, 63, 80] },
+  { y: 39, xs: [30, 51, 73] },
+  { y: 30, xs: [24, 46, 68] },
+  { y: 21, xs: [38, 58] },
+  { y: 12, xs: [48], boss: true }
+];
+
+const nodes=[], edges=[];
+let idCounter=1;
+rows.forEach(r=>{
+  r.xs.forEach(x=>{
+    nodes.push({id:'n'+(idCounter++),x,y:r.y,boss:!!r.boss,cleared:false});
+  });
+});
+
+// ====== 这段是你说的“不要动的连接逻辑” ======
+for(let i=1;i<rows.length;i++){
+  const cur=nodes.filter(n=>n.y===rows[i].y);
+  const prev=nodes.filter(n=>n.y===rows[i-1].y);
+  cur.forEach(c=>{
+    const sorted=prev.map(p=>({p,dist:Math.abs(p.x-c.x)})).sort((a,b)=>a.dist-b.dist);
+    edges.push({from:sorted[0].p.id,to:c.id});
+    if(sorted[1] && sorted[1].dist<20 && Math.random()<0.5)
+      edges.push({from:sorted[1].p.id,to:c.id});
+  });
+  prev.forEach(p=>{
+    const hasOut=edges.some(e=>e.from===p.id);
+    if(!hasOut){
+      const closest=cur.map(c=>({c,dist:Math.abs(c.x-p.x)})).sort((a,b)=>a.dist-b.dist)[0];
+      if(closest) edges.push({from:p.id,to:closest.c.id});
+    }
+  });
+}
+// =============================================
+
+const mapEl=document.getElementById('map');
+const svgEl=document.getElementById('lines');
+nodes.forEach(n=>{
+  const div=document.createElement('div');
+  div.className='node'+(n.boss?' boss':'');
+
+  div.style.left=n.x+'%';
+  div.style.top=n.y+'%';
+  div.dataset.id=n.id;
+  mapEl.appendChild(div);
+});
+function drawLines(){
+  svgEl.innerHTML='';
+  const w=mapEl.clientWidth,h=mapEl.clientHeight;
+  edges.forEach(e=>{
+    const f=nodes.find(n=>n.id===e.from);
+    const t=nodes.find(n=>n.id===e.to);
+    if(!f||!t)return;
+    const line=document.createElementNS('http://www.w3.org/2000/svg','line');
+    line.setAttribute('x1',f.x/100*w);
+    line.setAttribute('y1',f.y/100*h);
+    line.setAttribute('x2',t.x/100*w);
+    line.setAttribute('y2',t.y/100*h);
+    line.setAttribute('stroke','#2e2e2e');
+    line.setAttribute('stroke-width','3');
+    line.setAttribute('stroke-linecap','round');
+    line.setAttribute('stroke-dasharray','5 8');
+    svgEl.appendChild(line);
+  });
+}
+drawLines();
+window.addEventListener('resize',drawLines);
+
+// === 血量控制 ===
+function updateHP(){
+  document.getElementById('hpBar').innerText = "❤️ x" + hp;
+  localStorage.setItem('rogueHP', String(hp));
+  if(hp<=0){
+    alert("💀 你已经阵亡！游戏失败。");
+    document.querySelectorAll('.node').forEach(n=>n.classList.add('disabled'));
+  }
+}
+updateHP();
+
+// === 邻接表 ===
+const adj={};
+edges.forEach(e=>{
+  if(!adj[e.from])adj[e.from]=[];
+  adj[e.from].push(e.to);
+});
+
+// 初始只开底层
+const enabled=new Set(nodes.filter(n=>n.y===rows[0].y).map(n=>n.id));
+function refreshEnabled(){
+  nodes.forEach(n=>{
+    const el=mapEl.querySelector(`[data-id="${n.id}"]`);
+    if(!enabled.has(n.id)) el.classList.add('disabled');
+    else el.classList.remove('disabled');
+  });
+}
+refreshEnabled();
+
+// 先看看是不是从 question.html 回来的
+const backRaw = localStorage.getItem('questionResult');
+if (backRaw) {
+  const back = JSON.parse(backRaw);
+  localStorage.removeItem('questionResult');
+
+  if (back.map === MAP_INDEX) {
+    const nodeEl = document.querySelector(`[data-id="${back.nodeId}"]`);
+    if (nodeEl) {
+      // 答对了，或者不是boss（你说普通题错了也能过）
+      if (back.correct || !back.boss) {
+        nodeEl.classList.add('done');
+
+        // 解锁下一层
+        const next = adj[back.nodeId] || [];
+        enabled.clear();
+        next.forEach(id => enabled.add(id));
+        refreshEnabled();
+
+        // 如果是boss且对了 → 解锁下一张图
+        if (back.boss && back.correct) {
+          if (progress.unlocked < 2) {
+            progress.unlocked = 2;
+            localStorage.setItem('rogueProgress', JSON.stringify(progress));
+          }
+          // 跳 map2
+          window.location = NEXT_MAP;
+        }
+      } else {
+        // boss 且错了：不解锁
+        alert("❌ Boss答错，不能过这一层");
+      }
+    }
+
+    // 扣血
+    if (!back.correct && !back.boss) {
+      hp--;
+      updateHP();
+    }
+    if (!back.correct && back.boss) {
+      // boss错也可以扣
+      hp--;
+      updateHP();
+    }
+  }
+}
+
+// === 点击事件 ===
+nodes.forEach(n=>{
+  const el=mapEl.querySelector(`[data-id="${n.id}"]`);
+  el.addEventListener('click',()=>{
+
+    if(!enabled.has(n.id)||hp<=0)return;
+
+    // 把要做哪一题存好，去 question.html 做
+    localStorage.setItem('pendingQuestion', JSON.stringify({
+      map: MAP_INDEX,
+      nodeId: n.id,
+      boss: n.boss === true
+    }));
+
+    window.location = 'question.html';
+  });
+});
+
+// === 脚注：根据进度锁住 map2、map3 ===
+document.querySelectorAll('.foot button').forEach(b=>{
+  const idx = Number(b.dataset.map);
+  if (idx > progress.unlocked) {
+    b.classList.add('locked');
+  }
+  b.addEventListener('click',()=>{
+    if (idx <= progress.unlocked) {
+      window.location = `file:///C:/Users/Bob/Desktop/test/map/map${idx}.html`;
+    }
+  });
+});
+</script>
+</body>
+</html>
