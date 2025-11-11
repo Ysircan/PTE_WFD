@@ -86,11 +86,17 @@
     © Quick · v0.1
   </div>
 
-  <script>
-    document.getElementById('start-btn').addEventListener('click', () => {
-  alert('Enter WFD Test');
-  location.href = './map/map1.html';
-    });
-  </script>
+ <script>
+  document.getElementById('start-btn').addEventListener('click', () => {
+    // 如果是本地运行
+    if (window.location.protocol === 'file:') {
+      location.href = './map/map1.html';
+    } else {
+      // 如果是 GitHub Pages 或网站环境
+      location.href = 'map/map1.html';
+    }
+  });
+</script>
+
 </body>
 </html>
